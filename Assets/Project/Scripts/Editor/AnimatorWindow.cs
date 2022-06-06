@@ -159,7 +159,7 @@ public class AnimatorWindow : EditorWindow {
         OwnDeltaTime();
         if (_animationState == AnimationState.PLAY && _animatorSelected != -1 && null != _animations[_animatorSelected] && _animationSelected < _animations[_animatorSelected].Length) {
             _timer += _ownDeltaTime * _animationsSpeed;
-            if (_timer > _animations[_animatorSelected][_animationSelected].length + _animationsOffset) {
+            if (_timer > _animations[_animatorSelected][_animationSelected].length + _animationsOffset * _animationsSpeed) {
                 _timer = 0;
                 if (!_loop) {
                     PauseAnimation();
