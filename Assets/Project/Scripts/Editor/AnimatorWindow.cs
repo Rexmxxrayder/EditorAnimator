@@ -15,30 +15,29 @@ public class AnimatorWindow : EditorWindow {
         ANIMATIONFOCUS = 2
     }
 
+    enum AnimationState {
+        PLAY = 0,
+        PAUSE = 1,
+        STOP = 2
+    }
+
+
     AnimatorMode _mode = AnimatorMode.ANIMATORS;
     Animator[] _animators;
     AnimationClip[][] _animations;
+    bool _loop = true;
     int _animatorSelected = -1;
     int _animationSelected = -1;
-    float timeHeure = 0;
+    float _timer = 0;
+    float _ownDeltaTime = 0;
+    float _LastUpdateTime = 0;
+    float _animationsSpeed = 1;
+    float _animationsOffset = 0;
+    AnimationState _animationState = AnimationState.STOP;
     private GUIContent _content;
     private GUIContent _contentd;
+#if UNITY_EDITOR
     void OnGUI() {
-        //EditorGUILayout.BeginHorizontal();
-        //GUILayout.Label(_content);
-        //if (GUILayout.Button("<")) {
-        //    _mode = (AnimatorMode)Mathf.Clamp((int)_mode - 1, 0, 2);
-        //}
-        //GUILayout.FlexibleSpace();
-        //if (GUILayout.Button(">")) {
-        //    _mode = (AnimatorMode)Mathf.Clamp((int)_mode + 1, 0, 2);
-        //}
-        //EditorGUILayout.EndHorizontal();
-        //if (null == _content)
-        //    _content = new GUIContent("", (Texture2D)AssetDatabase.LoadAssetAtPath("Assets/Project/Sprites/leftA.png", typeof(Sprite)));
-        //if (null == _contentd)
-        //    _contentd = new GUIContent("", (Texture2D)AssetDatabase.LoadAssetAtPath("Assets/Project/Sprites/rightA.png", typeof(Sprite)));
-
         switch (_mode) {
             default:
             case AnimatorMode.ANIMATORS:
@@ -55,7 +54,6 @@ public class AnimatorWindow : EditorWindow {
 
     void ShowAnimators() {
         if (_animators != null) {
-            GUILayout.Label("Animators :", EditorStyles.boldLabel);
             for (int i = 0; i < _animators.Length; i++) {
                 if (GUILayout.Button(_animators[i].name)) {
                     Selection.activeGameObject = _animators[i].transform.parent.gameObject;
@@ -72,60 +70,169 @@ public class AnimatorWindow : EditorWindow {
 
     void ShowAnimations() {
         GUILayout.BeginHorizontal();
-        if (GUILayout.Button("<")) {
+        if (GUILayout.Button(_animators[_animatorSelected].gameObject.name)) {
             _mode = (AnimatorMode)Mathf.Clamp((int)_mode - 1, 0, 2);
+            StopAnimation();
+            return;
         }
-        GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
-        GUILayout.Label("Animations :", EditorStyles.boldLabel);
         if (_animators[_animatorSelected].runtimeAnimatorController == null || _animations[_animatorSelected].Length == 0) {
             GUILayout.Label("No animations", EditorStyles.boldLabel);
         } else {
+            EditorGUILayout.BeginHorizontal();
             EditorGUILayout.BeginVertical();
             for (int j = 0; j < _animations[_animatorSelected].Length; j++) {
-                EditorGUILayout.BeginHorizontal();
-                GUILayout.Label(_animations[_animatorSelected][j].name, EditorStyles.boldLabel);
-                if (GUILayout.Button("Play", GUILayout.Width(50))) {
-                    AnimationMode.StartAnimationMode();
+                if (GUILayout.Button(_animations[_animatorSelected][j].name)) {
                     _animationSelected = j;
+                    _mode = (AnimatorMode)Mathf.Clamp((int)_mode + 1, 0, 2);
+                    PauseAnimation();
                 }
-                EditorGUILayout.EndHorizontal();
             }
             EditorGUILayout.EndVertical();
-        }
-        if (GUILayout.Button("Stop", GUILayout.Width(50))) {
-            AnimationMode.StopAnimationMode();
-            _animationSelected = -1;
+            EditorGUILayout.BeginVertical();
+            for (int j = 0; j < _animations[_animatorSelected].Length; j++) {
+                if (_animationSelected == j) {
+                    if (_animationState == AnimationState.PLAY) {
+                        if (GUILayout.Button("Pause", GUILayout.Width(70))) {
+                            PauseAnimation();
+                        }
+                    } else {
+                        if (GUILayout.Button("Continue", GUILayout.Width(70))) {
+                            ContinueAnimation();
+                        }
+                    }
+                } else {
+                    if (GUILayout.Button("Play", GUILayout.Width(70))) {
+                        StartAnimation(j);
+                    }
+                }
+            }
+            EditorGUILayout.EndVertical();
+            if (GUILayout.Button("Stop", GUILayout.Height(2 * (_animations[_animatorSelected].Length - 1) + 19 * _animations[_animatorSelected].Length))) {
+                StopAnimation();
+            }
+            EditorGUILayout.EndHorizontal();
         }
 
     }
 
     void FocusAnimation() {
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button(_animations[_animatorSelected][_animationSelected].name)) {
+            _mode = (AnimatorMode)Mathf.Clamp((int)_mode - 1, 0, 2);
+            StopAnimation();
+            return;
+        }
+        if (_animationState == AnimationState.PLAY) {
+            if (GUILayout.Button("Pause", GUILayout.Width(50))) {
+                PauseAnimation();
+            }
+        } else {
+            if (GUILayout.Button("Play", GUILayout.Width(50))) {
+                StartAnimation(_animationSelected);
+            }
+        }
+        if (GUILayout.Button("Reset", GUILayout.Width(50))) {
+            ResetAnimation();
+        }
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField("Loop", EditorStyles.boldLabel);
+        _loop = EditorGUILayout.Toggle(_loop);
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField("Sample", EditorStyles.boldLabel);
+        _timer = EditorGUILayout.Slider(_timer, 0, _animations[_animatorSelected][_animationSelected].length);
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField("Speed", EditorStyles.boldLabel);
+        _animationsSpeed = EditorGUILayout.Slider(_animationsSpeed, 0, 5);
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField("Offset", EditorStyles.boldLabel);
+        _animationsOffset = EditorGUILayout.Slider(_animationsOffset, 0, 10);
+        EditorGUILayout.EndHorizontal();
 
     }
 
     private void Update() {
-        timeHeure += Time.deltaTime;
-        if (_animationSelected != -1 && _animatorSelected != -1 && null != _animations[_animatorSelected] && _animationSelected < _animations[_animatorSelected].Length) {
-            if (timeHeure > _animations[_animatorSelected][_animationSelected].length) {
-                timeHeure = 0;
+        OwnDeltaTime();
+        if (_animationState == AnimationState.PLAY && _animatorSelected != -1 && null != _animations[_animatorSelected] && _animationSelected < _animations[_animatorSelected].Length) {
+            _timer += _ownDeltaTime * _animationsSpeed;
+            if (_timer > _animations[_animatorSelected][_animationSelected].length + _animationsOffset) {
+                _timer = 0;
+                if (!_loop) {
+                    PauseAnimation();
+                }
             }
-            if (!EditorApplication.isPlaying && AnimationMode.InAnimationMode() ) {
+            if (!EditorApplication.isPlaying && AnimationMode.InAnimationMode()) {
                 AnimationMode.BeginSampling();
-                AnimationMode.SampleAnimationClip(_animators[_animatorSelected].gameObject, _animations[_animatorSelected][_animationSelected], timeHeure);
+                AnimationMode.SampleAnimationClip(_animators[_animatorSelected].gameObject, _animations[_animatorSelected][_animationSelected], _timer);
                 AnimationMode.EndSampling();
-
                 SceneView.RepaintAll();
             }
         }
-        Debug.Log(_animatorSelected);
+        if(_animationState == AnimationState.PAUSE) {
+            if (!EditorApplication.isPlaying && AnimationMode.InAnimationMode()) {
+                AnimationMode.BeginSampling();
+                AnimationMode.SampleAnimationClip(_animators[_animatorSelected].gameObject, _animations[_animatorSelected][_animationSelected], _timer);
+                AnimationMode.EndSampling();
+                SceneView.RepaintAll();
+            }
+        }
+    }
+    void StartAnimation(int animationSelected) {
+        _animationSelected = animationSelected;
+        AnimationMode.StartAnimationMode();
+        _animationState = AnimationState.PLAY;
+    }
+
+    void PauseAnimation() {
+        _animationState = AnimationState.PAUSE;
+    }
+
+    void ContinueAnimation() {
+        _animationState = AnimationState.PLAY;
+    }
+
+    void ResetAnimation() {
+        _animationState = AnimationState.PAUSE;
+        _animationsSpeed = 1;
+        _animationsOffset = 0;
+        _timer = 0;
+        _loop = true;
+        AnimationMode.StartAnimationMode();
+        AnimationMode.BeginSampling();
+        AnimationMode.SampleAnimationClip(_animators[_animatorSelected].gameObject, _animations[_animatorSelected][_animationSelected], _timer);
+        AnimationMode.EndSampling();
+        AnimationMode.StopAnimationMode();
+    }
+    void StopAnimation() {
+        _timer = 0;
+        if (_animationSelected != -1) {
+            AnimationMode.StartAnimationMode();
+            AnimationMode.BeginSampling();
+            AnimationMode.SampleAnimationClip(_animators[_animatorSelected].gameObject, _animations[_animatorSelected][_animationSelected], _timer);
+            AnimationMode.EndSampling();
+            AnimationMode.StopAnimationMode();
+            _animationSelected = -1;
+        }
+        _animationState = AnimationState.STOP;
+    }
+
+    void OwnDeltaTime() {
+        _ownDeltaTime = Time.realtimeSinceStartup - _LastUpdateTime;
+        _LastUpdateTime = Time.realtimeSinceStartup;
     }
 
     void OnEnable() {
-        Debug.Log("OnEnable");
+        // Debug.Log("OnEnable");
         _mode = AnimatorMode.ANIMATORS;
         _animators = FindObjectsOfType<Animator>();
         _animations = new AnimationClip[_animators.Length][];
         _animatorSelected = -1;
+        _animationSelected = -1;
+        StopAnimation();
     }
+#endif
 }
